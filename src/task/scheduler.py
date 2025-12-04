@@ -88,8 +88,10 @@ class TaskScheduler:
             task.status = TaskStatus.RUNNING
             task.started_at = datetime.utcnow()
             
-            # Start container
-            container_id = self.container_manager.start_task(task)
+            # Start container (run in thread pool to avoid blocking)
+            container_id = await asyncio.to_thread(
+                self.container_manager.start_task, task
+            )
             task.container_id = container_id
             
             print(f"Task {task.task_id} started in container {container_id[:12]}")
@@ -105,10 +107,36 @@ class TaskScheduler:
         while self._running:
             try:
                 await self._check_running_tasks()
+                await self._cleanup_old_tasks()
             except Exception as e:
                 print(f"Error in task monitor: {e}")
             
             await asyncio.sleep(5)  # Check every 5 seconds
+    
+    async def _cleanup_old_tasks(self, max_tasks: int = 1000, max_age_hours: int = 24):
+        """Clean up old completed tasks to prevent memory leak."""
+        if len(self.tasks) <= max_tasks:
+            return
+        
+        # Get completed tasks sorted by finish time
+        completed_tasks = [
+            (task_id, task) for task_id, task in self.tasks.items()
+            if task.status in (TaskStatus.SUCCESS, TaskStatus.FAILED, TaskStatus.TIMEOUT)
+            and task.finished_at is not None
+        ]
+        
+        if not completed_tasks:
+            return
+        
+        # Sort by finish time (oldest first)
+        completed_tasks.sort(key=lambda x: x[1].finished_at)
+        
+        # Remove oldest tasks
+        to_remove = len(self.tasks) - max_tasks
+        if to_remove > 0:
+            for task_id, task in completed_tasks[:to_remove]:
+                del self.tasks[task_id]
+            print(f"Cleaned up {to_remove} old tasks")
     
     async def _check_running_tasks(self):
         """Check status of running tasks."""
@@ -116,12 +144,16 @@ class TaskScheduler:
             if task.status != TaskStatus.RUNNING or not task.container_id:
                 continue
             
-            # Check container status
-            status = self.container_manager.get_task_status(task.container_id)
+            # Check container status (run in thread pool)
+            status = await asyncio.to_thread(
+                self.container_manager.get_task_status, task.container_id
+            )
             
             if status == "exited":
-                # Task finished, get result
-                result = self.container_manager.get_task_result(task.task_id)
+                # Task finished, get result (run in thread pool)
+                result = await asyncio.to_thread(
+                    self.container_manager.get_task_result, task.task_id
+                )
                 
                 if result:
                     task.status = TaskStatus.SUCCESS
@@ -129,6 +161,13 @@ class TaskScheduler:
                 else:
                     task.status = TaskStatus.FAILED
                     task.error_message = "No result file generated"
+                    
+                    # Collect container logs for debugging
+                    logs = await asyncio.to_thread(
+                        self.container_manager.get_container_logs, task.container_id, 50
+                    )
+                    if logs:
+                        task.error_message += f"\n\nContainer logs:\n{logs}"
                 
                 task.finished_at = datetime.utcnow()
                 print(f"Task {task.task_id} finished with status {task.status}")
@@ -142,8 +181,10 @@ class TaskScheduler:
             if task.started_at:
                 elapsed = (datetime.utcnow() - task.started_at).total_seconds()
                 if elapsed > task.cloc_config.timeout:
-                    # Timeout, stop container
-                    self.container_manager.stop_container(task.repository_id)
+                    # Timeout, stop container (run in thread pool)
+                    await asyncio.to_thread(
+                        self.container_manager.stop_container, task.repository_id
+                    )
                     task.status = TaskStatus.TIMEOUT
                     task.finished_at = datetime.utcnow()
                     task.error_message = f"Task timeout after {elapsed:.0f}s"

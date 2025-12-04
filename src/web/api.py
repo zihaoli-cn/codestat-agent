@@ -57,7 +57,7 @@ class ContainerInfo(BaseModel):
     image: str
 
 
-def create_api_router(db: DatabaseManager, container_manager) -> APIRouter:
+def create_api_router(db: DatabaseManager, container_manager, scheduler) -> APIRouter:
     """Create API router with dependencies."""
     
     router = APIRouter(prefix="/api")
@@ -109,6 +109,10 @@ def create_api_router(db: DatabaseManager, container_manager) -> APIRouter:
             cloc_config=config.cloc_config,
             webhook_secret=config.webhook_secret,
         )
+        
+        # Sync to scheduler
+        if config.cloc_config:
+            scheduler.set_repository_config(repository_id, config.cloc_config)
         
         return RepositoryResponse(
             repository_id=repo.repository_id,

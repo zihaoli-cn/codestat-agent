@@ -47,6 +47,15 @@ async def lifespan(app: FastAPI):
     await scheduler.start()
     print("Task scheduler started")
     
+    # Load repository configurations from database
+    repos = await db.list_repositories(enabled_only=True)
+    for repo in repos:
+        if repo.cloc_config:
+            from .task.models import ClocConfig
+            config = ClocConfig(**repo.cloc_config)
+            scheduler.set_repository_config(repo.repository_id, config)
+    print(f"Loaded {len(repos)} repository configurations")
+    
     # Initialize webhook handler
     webhook_handler = WebhookHandler()
     
@@ -65,6 +74,11 @@ async def lifespan(app: FastAPI):
     
     webhook_handler.on_push_event(on_push)
     print("Webhook handler initialized")
+    
+    # Register API router
+    api_router = create_api_router(db, container_manager, scheduler)
+    app.include_router(api_router)
+    print("API router registered")
     
     # Background task to sync task status to database
     async def sync_tasks():
@@ -95,14 +109,6 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
-
-
-# Include API router
-@app.on_event("startup")
-async def startup():
-    """Startup event handler."""
-    api_router = create_api_router(db, container_manager)
-    app.include_router(api_router)
 
 
 # Webhook endpoints

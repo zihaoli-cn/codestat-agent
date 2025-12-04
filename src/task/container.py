@@ -40,6 +40,9 @@ class ContainerManager:
         
         # Ensure network exists
         self._ensure_network()
+        
+        # Check if worker image exists
+        self._check_worker_image()
     
     def _ensure_network(self):
         """Ensure Docker network exists."""
@@ -47,6 +50,16 @@ class ContainerManager:
             self.client.networks.get(self.NETWORK_NAME)
         except NotFound:
             self.client.networks.create(self.NETWORK_NAME, driver="bridge")
+    
+    def _check_worker_image(self):
+        """Check if worker image exists."""
+        try:
+            self.client.images.get(self.WORKER_IMAGE)
+        except NotFound:
+            raise RuntimeError(
+                f"Worker image '{self.WORKER_IMAGE}' not found. "
+                f"Please build it first by running: ./docker/build.sh"
+            )
     
     def _get_container_name(self, repository_id: str) -> str:
         """Generate container name for repository."""
@@ -68,9 +81,9 @@ class ContainerManager:
         except NotFound:
             return None
     
-    def create_or_get_container(self, task: StatTask) -> Container:
+    def create_container_for_task(self, task: StatTask) -> Container:
         """
-        Create new container or get existing one for repository.
+        Create new container for task.
         
         Args:
             task: Statistics task
@@ -82,10 +95,15 @@ class ContainerManager:
         repo_path = self._get_repo_path(task.repository_id)
         result_path = self._get_result_path(task.task_id)
         
-        # Check if container already exists
+        # Check if container already exists and remove it
         existing = self.get_container(task.repository_id)
         if existing:
-            return existing
+            try:
+                if existing.status == "running":
+                    existing.stop(timeout=5)
+                existing.remove(force=True)
+            except APIError:
+                pass
         
         # Ensure repo directory exists
         repo_path.mkdir(parents=True, exist_ok=True)
@@ -131,14 +149,14 @@ class ContainerManager:
         Returns:
             Container ID
         """
-        container = self.create_or_get_container(task)
+        # Create new container for this task
+        container = self.create_container_for_task(task)
         
-        # Start container if not running
-        if container.status != "running":
-            try:
-                container.start()
-            except APIError as e:
-                raise RuntimeError(f"Failed to start container: {e}")
+        # Start container
+        try:
+            container.start()
+        except APIError as e:
+            raise RuntimeError(f"Failed to start container: {e}")
         
         return container.id
     
@@ -178,6 +196,24 @@ class ContainerManager:
                 return json.load(f)
         except (json.JSONDecodeError, IOError):
             return None
+    
+    def get_container_logs(self, container_id: str, tail: int = 100) -> str:
+        """
+        Get container logs.
+        
+        Args:
+            container_id: Container ID
+            tail: Number of lines to retrieve
+            
+        Returns:
+            Log string
+        """
+        try:
+            container = self.client.containers.get(container_id)
+            logs = container.logs(tail=tail, timestamps=True)
+            return logs.decode('utf-8', errors='replace')
+        except (NotFound, APIError):
+            return ""
     
     def stop_container(self, repository_id: str, timeout: int = 10):
         """
