@@ -66,6 +66,50 @@ The system is composed of a central agent that listens for webhook events and a 
 
 ## 🔧 Configuration
 
+### 0. Environment Variables (Optional)
+
+CodeStat Agent supports flexible configuration through environment variables or a `.env` file.
+
+**Copy the example configuration:**
+
+```bash
+cp .env.example .env
+```
+
+**Edit `.env` to customize your settings:**
+
+```bash
+# Application
+APP_NAME=CodeStat Agent
+DEBUG=false
+
+# Server
+HOST=0.0.0.0
+PORT=8000
+
+# Database
+DATABASE_URL=sqlite+aiosqlite:///./data/codestat.db
+
+# Storage
+DATA_DIR=./data
+
+# Task Scheduler
+TASK_CHECK_INTERVAL=5
+TASK_MAX_MEMORY=1000
+
+# Container
+WORKER_IMAGE=codestat-worker:latest
+CONTAINER_MEMORY_LIMIT=512m
+CONTAINER_CPU_QUOTA=50000
+
+# Default CLOC Configuration
+DEFAULT_CLOC_TIMEOUT=600
+DEFAULT_CLOC_OUTPUT_FORMAT=json
+DEFAULT_USE_GITIGNORE=true
+```
+
+All settings have sensible defaults and can be overridden via environment variables.
+
 ### 1. Add a Repository
 
 Configuration is managed via the REST API. You can use `curl` to add and configure a repository.
