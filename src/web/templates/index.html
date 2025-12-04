@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CodeStat Agent - Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-50">
+    <div x-data="dashboard()" x-init="init()" class="min-h-screen">
+        <!-- Header -->
+        <header class="bg-white shadow">
+            <div class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between">
+                    <h1 class="text-3xl font-bold text-gray-900">CodeStat Agent</h1>
+                    <div class="flex gap-4">
+                        <button @click="activeTab = 'repositories'" 
+                                :class="activeTab === 'repositories' ? 'bg-blue-500 text-white' : 'bg-gray-200'"
+                                class="px-4 py-2 rounded">
+                            Repositories
+                        </button>
+                        <button @click="activeTab = 'tasks'" 
+                                :class="activeTab === 'tasks' ? 'bg-blue-500 text-white' : 'bg-gray-200'"
+                                class="px-4 py-2 rounded">
+                            Tasks
+                        </button>
+                        <button @click="activeTab = 'containers'" 
+                                :class="activeTab === 'containers' ? 'bg-blue-500 text-white' : 'bg-gray-200'"
+                                class="px-4 py-2 rounded">
+                            Containers
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+            <!-- Repositories Tab -->
+            <div x-show="activeTab === 'repositories'" class="space-y-6">
+                <div class="bg-white shadow rounded-lg p-6">
+                    <h2 class="text-xl font-semibold mb-4">Repositories</h2>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">URL</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <template x-for="repo in repositories" :key="repo.repository_id">
+                                    <tr>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900" x-text="repo.repository_name"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="repo.repository_url"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span :class="repo.enabled ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'" 
+                                                  class="px-2 py-1 text-xs rounded-full" 
+                                                  x-text="repo.enabled ? 'Enabled' : 'Disabled'"></span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="formatDate(repo.created_at)"></td>
+                                    </tr>
+                                </template>
+                                <template x-if="repositories.length === 0">
+                                    <tr>
+                                        <td colspan="4" class="px-6 py-4 text-center text-gray-500">No repositories configured</td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tasks Tab -->
+            <div x-show="activeTab === 'tasks'" class="space-y-6">
+                <div class="bg-white shadow rounded-lg p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-semibold">Recent Tasks</h2>
+                        <button @click="loadTasks()" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                            Refresh
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Repository</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Branch</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Commit</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Result</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <template x-for="task in tasks" :key="task.task_id">
+                                    <tr>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900" x-text="task.repository_name"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="task.branch"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="task.commit_sha.substring(0, 7)"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span :class="getStatusColor(task.status)" 
+                                                  class="px-2 py-1 text-xs rounded-full" 
+                                                  x-text="task.status"></span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="formatDate(task.created_at)"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            <template x-if="task.result && task.result.header">
+                                                <span x-text="`${task.result.header.n_lines || 0} lines`"></span>
+                                            </template>
+                                            <template x-if="task.error_message">
+                                                <span class="text-red-600" x-text="task.error_message.substring(0, 30) + '...'"></span>
+                                            </template>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <template x-if="tasks.length === 0">
+                                    <tr>
+                                        <td colspan="6" class="px-6 py-4 text-center text-gray-500">No tasks found</td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Containers Tab -->
+            <div x-show="activeTab === 'containers'" class="space-y-6">
+                <div class="bg-white shadow rounded-lg p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-semibold">Docker Containers</h2>
+                        <div class="flex gap-2">
+                            <button @click="cleanupContainers()" class="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600">
+                                Cleanup Stopped
+                            </button>
+                            <button @click="loadContainers()" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                                Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Image</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <template x-for="container in containers" :key="container.id">
+                                    <tr>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900" x-text="container.id"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="container.name"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span :class="container.status === 'running' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'" 
+                                                  class="px-2 py-1 text-xs rounded-full" 
+                                                  x-text="container.status"></span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="container.image"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                            <button @click="stopContainer(container.name.replace('codestat-', ''))" 
+                                                    x-show="container.status === 'running'"
+                                                    class="text-red-600 hover:text-red-900">Stop</button>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <template x-if="containers.length === 0">
+                                    <tr>
+                                        <td colspan="5" class="px-6 py-4 text-center text-gray-500">No containers running</td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function dashboard() {
+            return {
+                activeTab: 'repositories',
+                repositories: [],
+                tasks: [],
+                containers: [],
+
+                async init() {
+                    await this.loadRepositories();
+                    await this.loadTasks();
+                    await this.loadContainers();
+                    
+                    // Auto-refresh every 10 seconds
+                    setInterval(() => {
+                        if (this.activeTab === 'tasks') this.loadTasks();
+                        if (this.activeTab === 'containers') this.loadContainers();
+                    }, 10000);
+                },
+
+                async loadRepositories() {
+                    try {
+                        const response = await fetch('/api/repositories');
+                        this.repositories = await response.json();
+                    } catch (error) {
+                        console.error('Failed to load repositories:', error);
+                    }
+                },
+
+                async loadTasks() {
+                    try {
+                        const response = await fetch('/api/tasks?limit=50');
+                        this.tasks = await response.json();
+                    } catch (error) {
+                        console.error('Failed to load tasks:', error);
+                    }
+                },
+
+                async loadContainers() {
+                    try {
+                        const response = await fetch('/api/containers');
+                        this.containers = await response.json();
+                    } catch (error) {
+                        console.error('Failed to load containers:', error);
+                    }
+                },
+
+                async stopContainer(repositoryId) {
+                    try {
+                        await fetch(`/api/containers/${repositoryId}/stop`, { method: 'POST' });
+                        await this.loadContainers();
+                    } catch (error) {
+                        console.error('Failed to stop container:', error);
+                    }
+                },
+
+                async cleanupContainers() {
+                    try {
+                        await fetch('/api/containers/cleanup', { method: 'POST' });
+                        await this.loadContainers();
+                    } catch (error) {
+                        console.error('Failed to cleanup containers:', error);
+                    }
+                },
+
+                formatDate(dateStr) {
+                    return new Date(dateStr).toLocaleString();
+                },
+
+                getStatusColor(status) {
+                    const colors = {
+                        'pending': 'bg-gray-100 text-gray-800',
+                        'running': 'bg-blue-100 text-blue-800',
+                        'success': 'bg-green-100 text-green-800',
+                        'failed': 'bg-red-100 text-red-800',
+                        'timeout': 'bg-yellow-100 text-yellow-800',
+                    };
+                    return colors[status] || 'bg-gray-100 text-gray-800';
+                }
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  codestat-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    container_name: codestat-agent
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///app/data/codestat.db
+    restart: unless-stopped
+    networks:
+      - codestat-network
+
+networks:
+  codestat-network:
+    name: codestat-network
