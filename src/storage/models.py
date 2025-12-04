@@ -3,7 +3,7 @@ Database models for persistent storage.
 """
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, Integer, DateTime, JSON, Enum as SQLEnum, Text
+from sqlalchemy import String, Integer, DateTime, JSON, Enum as SQLEnum, Text, Index
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from ..task.models import TaskStatus
@@ -62,3 +62,9 @@ class Task(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Composite index for common queries
+    __table_args__ = (
+        Index('ix_task_repo_created', 'repository_id', 'created_at'),
+        Index('ix_task_status_created', 'status', 'created_at'),
+    )

@@ -53,27 +53,15 @@ else
     CLOC_CMD="${CLOC_CMD} --json"
 fi
 
-# Handle .gitignore
-if [ "${USE_GITIGNORE}" = "1" ] && [ -f ".gitignore" ]; then
-    echo "Using .gitignore for exclusions..."
-    
-    # Convert .gitignore to CLOC exclude list
-    EXCLUDE_LIST="/tmp/cloc_exclude.txt"
-    
-    # Extract directory and file patterns from .gitignore
-    grep -v '^#' .gitignore | grep -v '^$' | while read -r pattern; do
-        # Remove leading/trailing slashes and wildcards for CLOC
-        pattern=$(echo "$pattern" | sed 's:^/::' | sed 's:/$::')
-        echo "$pattern"
-    done > "${EXCLUDE_LIST}"
-    
-    if [ -s "${EXCLUDE_LIST}" ]; then
-        CLOC_CMD="${CLOC_CMD} --exclude-list-file=${EXCLUDE_LIST}"
-    fi
+# Use git VCS mode to automatically respect .gitignore
+# This is more reliable than manually parsing .gitignore
+if [ "${USE_GITIGNORE}" = "1" ]; then
+    echo "Using git VCS mode to respect .gitignore..."
+    CLOC_CMD="${CLOC_CMD} --vcs=git"
+else
+    # If not using .gitignore, still use git mode but may include ignored files
+    CLOC_CMD="${CLOC_CMD} --vcs=git --no-autogen"
 fi
-
-# Add VCS mode to respect git
-CLOC_CMD="${CLOC_CMD} --vcs=git"
 
 echo "Command: ${CLOC_CMD}"
 echo ""

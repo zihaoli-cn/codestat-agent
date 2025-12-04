@@ -12,8 +12,11 @@ from fastapi.templating import Jinja2Templates
 
 from .webhook import WebhookHandler, GitProvider
 from .task import ContainerManager, TaskScheduler, ClocConfig
+from .task.models import TaskStatus
 from .storage import DatabaseManager
 from .web import create_api_router
+from .config import settings
+from .logger import logger
 
 
 # Global instances
@@ -29,23 +32,23 @@ async def lifespan(app: FastAPI):
     global db, container_manager, scheduler, webhook_handler
     
     # Initialize database
-    db = DatabaseManager()
+    db = DatabaseManager(database_url=settings.database_url)
     await db.init_db()
-    print("Database initialized")
+    logger.info("Database initialized")
     
     # Initialize container manager
-    container_manager = ContainerManager(data_dir="./data")
-    print("Container manager initialized")
+    container_manager = ContainerManager(data_dir=settings.data_dir)
+    logger.info("Container manager initialized")
     
     # Initialize task scheduler
     default_config = ClocConfig(
-        output_format="json",
-        use_gitignore=True,
-        timeout=600
+        output_format=settings.default_cloc_output_format,
+        use_gitignore=settings.default_use_gitignore,
+        timeout=settings.default_cloc_timeout
     )
     scheduler = TaskScheduler(container_manager, default_config)
     await scheduler.start()
-    print("Task scheduler started")
+    logger.info("Task scheduler started")
     
     # Load repository configurations from database
     repos = await db.list_repositories(enabled_only=True)
@@ -54,7 +57,7 @@ async def lifespan(app: FastAPI):
             from .task.models import ClocConfig
             config = ClocConfig(**repo.cloc_config)
             scheduler.set_repository_config(repo.repository_id, config)
-    print(f"Loaded {len(repos)} repository configurations")
+    logger.info(f"Loaded {len(repos)} repository configurations")
     
     # Initialize webhook handler
     webhook_handler = WebhookHandler()
@@ -62,7 +65,7 @@ async def lifespan(app: FastAPI):
     # Register webhook callback
     async def on_push(event):
         """Handle push events."""
-        print(f"Received push event: {event.repository_name} @ {event.commit_sha[:7]}")
+        logger.info(f"Received push event: {event.repository_name} @ {event.commit_sha[:7]}")
         
         # Schedule task
         task = await scheduler.schedule_from_push_event(event)
@@ -70,15 +73,15 @@ async def lifespan(app: FastAPI):
         # Save to database
         await db.save_task(task)
         
-        print(f"Task scheduled: {task.task_id}")
+        logger.info(f"Task scheduled: {task.task_id}")
     
     webhook_handler.on_push_event(on_push)
-    print("Webhook handler initialized")
+    logger.info("Webhook handler initialized")
     
     # Register API router
     api_router = create_api_router(db, container_manager, scheduler)
     app.include_router(api_router)
-    print("API router registered")
+    logger.info("API router registered")
     
     # Background task to sync task status to database
     async def sync_tasks():
@@ -87,7 +90,7 @@ async def lifespan(app: FastAPI):
                 for task in scheduler.tasks.values():
                     await db.save_task(task)
             except Exception as e:
-                print(f"Error syncing tasks: {e}")
+                logger.error(f"Error syncing tasks: {e}", exc_info=True)
             
             await asyncio.sleep(10)
     
@@ -96,18 +99,55 @@ async def lifespan(app: FastAPI):
     yield
     
     # Cleanup
+    logger.info("Shutting down application...")
+    
+    # Cancel sync task
     sync_task.cancel()
+    try:
+        await sync_task
+    except asyncio.CancelledError:
+        pass
+    
+    # Wait for running tasks to complete (with timeout)
+    running_tasks = [
+        task for task in scheduler.tasks.values()
+        if task.status == TaskStatus.RUNNING
+    ]
+    
+    if running_tasks:
+        logger.info(f"Waiting for {len(running_tasks)} running tasks to complete...")
+        
+        # Wait up to 30 seconds for tasks to finish
+        for i in range(30):
+            running_tasks = [
+                task for task in scheduler.tasks.values()
+                if task.status == TaskStatus.RUNNING
+            ]
+            if not running_tasks:
+                break
+            await asyncio.sleep(1)
+        
+        if running_tasks:
+            logger.warning(f"{len(running_tasks)} tasks still running, forcing shutdown")
+    
+    # Stop scheduler
     await scheduler.stop()
+    
+    # Save final state to database
+    for task in scheduler.tasks.values():
+        await db.save_task(task)
+    
     await db.close()
-    print("Application shutdown")
+    logger.info("Application shutdown complete")
 
 
 # Create FastAPI app
 app = FastAPI(
-    title="CodeStat Agent",
+    title=settings.app_name,
     description="Webhook-based code statistics tool",
-    version="1.0.0",
-    lifespan=lifespan
+    version=settings.app_version,
+    lifespan=lifespan,
+    debug=settings.debug
 )
 
 
@@ -154,9 +194,9 @@ if __name__ == "__main__":
     import uvicorn
     
     uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
+        "src.main:app",
+        host=settings.host,
+        port=settings.port,
+        reload=settings.debug,
+        log_level="debug" if settings.debug else "info"
     )

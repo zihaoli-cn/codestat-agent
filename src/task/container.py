@@ -10,21 +10,22 @@ from docker.models.containers import Container
 from docker.errors import DockerException, NotFound, APIError
 
 from .models import StatTask, ClocConfig
+from ..config import settings
 
 
 class ContainerManager:
     """Manages Docker containers for code statistics execution."""
     
-    WORKER_IMAGE = "codestat-worker:latest"
     NETWORK_NAME = "codestat-network"
     
-    def __init__(self, data_dir: str = "./data"):
-        """
-        Initialize container manager.
+    def __init__(self, data_dir: str = None):
+        """Initialize container manager."""
+        self.worker_image = settings.worker_image
+    
         
-        Args:
-            data_dir: Directory for persistent data storage
-        """
+        if data_dir is None:
+            data_dir = settings.data_dir
+        
         try:
             self.client = docker.from_env()
         except DockerException as e:
@@ -54,10 +55,10 @@ class ContainerManager:
     def _check_worker_image(self):
         """Check if worker image exists."""
         try:
-            self.client.images.get(self.WORKER_IMAGE)
+            self.client.images.get(self.worker_image)
         except NotFound:
             raise RuntimeError(
-                f"Worker image '{self.WORKER_IMAGE}' not found. "
+                f"Worker image '{self.worker_image}' not found. "
                 f"Please build it first by running: ./docker/build.sh"
             )
     
@@ -122,7 +123,7 @@ class ContainerManager:
         # Create container
         try:
             container = self.client.containers.create(
-                image=self.WORKER_IMAGE,
+                image=self.worker_image,
                 name=container_name,
                 environment=env,
                 volumes={
@@ -132,8 +133,8 @@ class ContainerManager:
                 network=self.NETWORK_NAME,
                 detach=True,
                 auto_remove=False,  # Keep container for inspection
-                mem_limit="512m",  # Limit memory
-                cpu_quota=50000,  # Limit CPU (50% of one core)
+                mem_limit=settings.container_memory_limit,
+                cpu_quota=settings.container_cpu_quota,
             )
             return container
         except APIError as e:

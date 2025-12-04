@@ -9,6 +9,8 @@ from typing import Optional, Dict, Any
 from ..webhook.models import PushEvent
 from .models import StatTask, TaskStatus, ClocConfig
 from .container import ContainerManager
+from ..config import settings
+from ..logger import logger
 
 
 class TaskScheduler:
@@ -94,13 +96,13 @@ class TaskScheduler:
             )
             task.container_id = container_id
             
-            print(f"Task {task.task_id} started in container {container_id[:12]}")
+            logger.info(f"Task {task.task_id} started in container {container_id[:12]}")
             
         except Exception as e:
             task.status = TaskStatus.FAILED
             task.finished_at = datetime.utcnow()
             task.error_message = str(e)
-            print(f"Task {task.task_id} failed to start: {e}")
+            logger.error(f"Task {task.task_id} failed to start: {e}", exc_info=True)
     
     async def _monitor_tasks(self):
         """Background task to monitor running tasks."""
@@ -109,12 +111,13 @@ class TaskScheduler:
                 await self._check_running_tasks()
                 await self._cleanup_old_tasks()
             except Exception as e:
-                print(f"Error in task monitor: {e}")
+                logger.error(f"Error in task monitor: {e}", exc_info=True)
             
-            await asyncio.sleep(5)  # Check every 5 seconds
+            await asyncio.sleep(settings.task_check_interval)
     
-    async def _cleanup_old_tasks(self, max_tasks: int = 1000, max_age_hours: int = 24):
+    async def _cleanup_old_tasks(self):
         """Clean up old completed tasks to prevent memory leak."""
+        max_tasks = settings.task_max_memory
         if len(self.tasks) <= max_tasks:
             return
         
@@ -136,7 +139,7 @@ class TaskScheduler:
         if to_remove > 0:
             for task_id, task in completed_tasks[:to_remove]:
                 del self.tasks[task_id]
-            print(f"Cleaned up {to_remove} old tasks")
+            logger.info(f"Cleaned up {to_remove} old tasks")
     
     async def _check_running_tasks(self):
         """Check status of running tasks."""
@@ -170,7 +173,7 @@ class TaskScheduler:
                         task.error_message += f"\n\nContainer logs:\n{logs}"
                 
                 task.finished_at = datetime.utcnow()
-                print(f"Task {task.task_id} finished with status {task.status}")
+                logger.info(f"Task {task.task_id} finished with status {task.status}")
             
             elif status == "not_found":
                 task.status = TaskStatus.FAILED
@@ -188,7 +191,7 @@ class TaskScheduler:
                     task.status = TaskStatus.TIMEOUT
                     task.finished_at = datetime.utcnow()
                     task.error_message = f"Task timeout after {elapsed:.0f}s"
-                    print(f"Task {task.task_id} timed out")
+                    logger.warning(f"Task {task.task_id} timed out after {elapsed:.0f}s")
     
     def get_task(self, task_id: str) -> Optional[StatTask]:
         """Get task by ID."""
@@ -232,7 +235,7 @@ class TaskScheduler:
         
         self._running = True
         self._monitor_task = asyncio.create_task(self._monitor_tasks())
-        print("Task scheduler started")
+        logger.info("Task scheduler started")
     
     async def stop(self):
         """Stop background monitoring."""
@@ -248,4 +251,4 @@ class TaskScheduler:
             except asyncio.CancelledError:
                 pass
         
-        print("Task scheduler stopped")
+        logger.info("Task scheduler stopped")
